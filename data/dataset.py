@@ -39,7 +39,7 @@ def get_dataset(dataset: str) -> tuple[Dataset, Dataset]:
                                                      train=True,
                                                      download=True,
                                                      transform=get_CIFAR_transform(dataset, "train"))
-        val_dataset = torchvision.datasets.CIFAR10(root=f'./{dataset}/data/train',
+        val_dataset = torchvision.datasets.CIFAR10(root=f'./{dataset}/data/val',
                                                    train=False,
                                                    download=True,
                                                    transform=get_CIFAR_transform(dataset, "val"))
@@ -49,7 +49,7 @@ def get_dataset(dataset: str) -> tuple[Dataset, Dataset]:
                                                       train=True,
                                                       download=True,
                                                       transform=get_CIFAR_transform(dataset, "train"))
-        val_dataset = torchvision.datasets.CIFAR100(root=f'./{dataset}/data/train',
+        val_dataset = torchvision.datasets.CIFAR100(root=f'./{dataset}/data/val',
                                                     train=False,
                                                     download=True,
                                                     transform=get_CIFAR_transform(dataset, "val"))

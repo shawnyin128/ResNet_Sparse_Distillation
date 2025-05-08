@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from evaluation.validate import validate
 from evaluation.sparsity import calculate_sparsity
@@ -33,6 +33,7 @@ def fine_tune(model: nn.Module,
               optimizer: optim.Optimizer,
               scheduler: optim.lr_scheduler,
               epoch: int,
+              theta: float=0.1,
               alpha: float=1.0,
               beta: float=1e-5,
               device: str='cuda') -> None:
@@ -50,7 +51,7 @@ def fine_tune(model: nn.Module,
 
             loss_norm = fine_tune_loss(model, alpha, beta)
 
-            loss = 0.2 * loss_cls + 0.8 * loss_norm
+            loss = theta * loss_cls + (1-theta) * loss_norm
 
             optimizer.zero_grad()
             loss.backward()

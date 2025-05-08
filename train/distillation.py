@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 from evaluation.validate import validate
 from evaluation.sparsity import calculate_sparsity
@@ -20,8 +20,8 @@ def get_weights_norm(model: nn.Module) -> dict:
             l1_total = 0.0
             for submodule in module.modules():
                 if isinstance(submodule, nn.Conv2d):
-                    weight = submodule.weight.data
-                    l1_total += weight.abs().sum().item()
+                    weight = submodule.weight
+                    l1_total += weight.abs().sum()
             conv_weight_stats[name] = l1_total
 
     return conv_weight_stats
@@ -48,8 +48,12 @@ def soft_kl(student_logits: torch.Tensor,
             sigmoid_T1: int,
             sigmoid_T2: int,
             offset1: float,
-            offset2: float) -> torch.Tensor:
-    soft_teacher_logits = teacher_logits.detach() * soft_sigmoid(teacher_logits.detach(), sigmoid_T1, offset1, sigmoid_T2, offset2)
+            offset2: float,
+            use_soft: bool) -> torch.Tensor:
+    if use_soft:
+        soft_teacher_logits = teacher_logits.detach() * soft_sigmoid(teacher_logits.detach(), sigmoid_T1, offset1, sigmoid_T2, offset2)
+    else:
+        soft_teacher_logits = teacher_logits.detach()
 
     soft_kl_score = F.kl_div(
         F.log_softmax(student_logits / T, dim=1),
@@ -73,7 +77,8 @@ def distill_loss(student_logits: torch.Tensor,
                  sigmoid_T1: int=10000,
                  offset1: float=0.001,
                  sigmoid_T2: int=10000,
-                 offset2: float=0.001) -> torch.Tensor:
+                 offset2: float=0.001,
+                 use_soft: bool=True) -> torch.Tensor:
     kl_final = F.kl_div(
         F.log_softmax(student_logits / T, dim=1),
         F.softmax(teacher_logits / T, dim=1),
@@ -85,13 +90,13 @@ def distill_loss(student_logits: torch.Tensor,
 
     kl_inter = 0.0
     norm_inter = 0.0
-    for layer in layer_names:
+    for i, layer in enumerate(layer_names):
         if is_soft_kl:
-            s_feat = student_features[layer]
-            t_feat = teacher_features[layer]
+            s_feat = student_features[i]
+            t_feat = teacher_features[i]
             kl = soft_kl(s_feat.view(s_feat.size(0), -1),
                          t_feat.view(t_feat.size(0), -1),
-                         T, sigmoid_T1, sigmoid_T2, offset1, offset2)
+                         T, sigmoid_T1, sigmoid_T2, offset1, offset2, use_soft)
             kl_inter += kl
         if is_l1:
             norm_inter += layer_norm_dict[layer]
@@ -133,6 +138,7 @@ def distillation(teacher: nn.Module,
                  optimizer: optim.Optimizer,
                  scheduler: optim.lr_scheduler,
                  epoch: int,
+                 theta: float=0.1,
                  alpha: float=1.0,
                  beta: float=1e-5,
                  is_l1: bool=True,
@@ -141,6 +147,7 @@ def distillation(teacher: nn.Module,
                  sigmoid_T1: int=10000,
                  sigmoid_T2: int=10000,
                  penalty_output: float=0.0015,
+                 use_soft: bool=True,
                  device: str='cuda') -> None:
     teacher.to(device)
     student.to(device)
@@ -163,9 +170,9 @@ def distillation(teacher: nn.Module,
             loss_cls = criterion(s_logits, y)
 
             loss_kd = distill_loss(s_logits, t_logits, s_feats, t_feats, student,
-                                   is_l1, is_soft_kl, alpha, beta, T, sigmoid_T1, sigmoid_T2, offset, offset)
+                                   is_l1, is_soft_kl, alpha, beta, T, sigmoid_T1, offset, sigmoid_T2, offset, use_soft)
 
-            loss = 0.2 * loss_cls + 0.8 * loss_kd
+            loss = theta * loss_cls + (1-theta) * loss_kd
 
             optimizer.zero_grad()
             loss.backward()
