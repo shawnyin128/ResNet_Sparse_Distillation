@@ -8,15 +8,6 @@ from evaluation.validate import validate
 from evaluation.sparsity import calculate_sparsity
 
 
-def generate_thresholds(levels: list) -> list:
-    thresholds = []
-    for level in levels:
-        for i in range(10):
-            for j in range(10):
-                thresholds.append(((i+1) + (j+1)/10) * level)
-    return thresholds
-
-
 def evaluate_weights_prune(model: nn.Module,
                            thresholds: list,
                            val_dataloader: DataLoader) -> tuple:
@@ -40,10 +31,10 @@ def evaluate_activation_prune(model: nn.Module,
     accuracy_list = []
     flops_list = []
 
-    for i in range(len(thresholds)):
-        threshold = thresholds[i]
+    for threshold in tqdm(thresholds, leave=False):
         total_flops = 0.0
-        total_accuracy = 0.0
+        total_correct = 0
+        total_samples = 0
         total_iteration = 0
         pbar = tqdm(val_dataloader, desc=f"T:{threshold}", leave=False)
         for data in pbar:
@@ -60,11 +51,12 @@ def evaluate_activation_prune(model: nn.Module,
             _, predicted = output.max(1)
             total += y.size(0)
             correct += predicted.eq(y).sum().item()
-            total_accuracy += (100. * correct / total)
+            total_correct += correct
+            total_samples += total
 
             pbar.set_postfix({"accuracy": (100. * correct / total), "flops": flops})
 
-        accuracy_list.append(total_accuracy / total_iteration)
+        accuracy_list.append(100. * total_correct / total_samples)
         flops_list.append(total_flops / total_iteration)
 
     return accuracy_list, flops_list

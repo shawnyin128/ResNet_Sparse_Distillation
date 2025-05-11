@@ -11,18 +11,21 @@ from evaluation.validate import validate
 from evaluation.sparsity import calculate_sparsity
 
 
-# l1 norm
-def get_weights_norm(model: nn.Module) -> dict:
+# norm_type: 'l1' or 'l2'
+def get_weights_norm(model: nn.Module, norm_type: str = 'l1') -> dict:
     conv_weight_stats = {}
 
     for name, module in model.named_children():
         if isinstance(module, nn.Sequential) and "downsample" not in name:
-            l1_total = 0.0
+            total = 0.0
             for submodule in module.modules():
                 if isinstance(submodule, nn.Conv2d):
                     weight = submodule.weight
-                    l1_total += weight.abs().sum()
-            conv_weight_stats[name] = l1_total
+                    if norm_type == 'l2':
+                        total += torch.sqrt((weight ** 2).sum())
+                    else:  # default to l1
+                        total += weight.abs().sum()
+            conv_weight_stats[name] = total
 
     return conv_weight_stats
 
@@ -69,7 +72,8 @@ def distill_loss(student_logits: torch.Tensor,
                  student_features: list,
                  teacher_features: list,
                  student_model: nn.Module,
-                 is_l1: bool=True,
+                 is_norm: bool=True,
+                 norm_type: str='l1',
                  is_soft_kl: bool=True,
                  alpha: float=1.0,
                  beta: float=1e-4,
@@ -85,7 +89,7 @@ def distill_loss(student_logits: torch.Tensor,
         reduction='batchmean'
     ) * (T ** 2)
 
-    layer_norm_dict = get_weights_norm(student_model)
+    layer_norm_dict = get_weights_norm(student_model, norm_type)
     layer_names = list(layer_norm_dict.keys())
 
     kl_inter = 0.0
@@ -94,11 +98,11 @@ def distill_loss(student_logits: torch.Tensor,
         if is_soft_kl:
             s_feat = student_features[i]
             t_feat = teacher_features[i]
-            kl = soft_kl(s_feat.view(s_feat.size(0), -1),
-                         t_feat.view(t_feat.size(0), -1),
-                         T, sigmoid_T1, sigmoid_T2, offset1, offset2, use_soft)
+            kl = soft_kl(student_logits=s_feat.view(s_feat.size(0), -1), teacher_logits=t_feat.view(t_feat.size(0), -1),
+                         T=T, sigmoid_T1=sigmoid_T1, sigmoid_T2=sigmoid_T2, offset1=offset1, offset2=offset2,
+                         use_soft=use_soft)
             kl_inter += kl
-        if is_l1:
+        if is_norm:
             norm_inter += layer_norm_dict[layer]
 
     kl = kl_inter + beta * norm_inter
@@ -141,7 +145,8 @@ def distillation(teacher: nn.Module,
                  theta: float=0.1,
                  alpha: float=1.0,
                  beta: float=1e-5,
-                 is_l1: bool=True,
+                 is_norm: bool=True,
+                 norm_type: str='l1',
                  is_soft_kl: bool=True,
                  T: float=4.0,
                  sigmoid_T1: int=10000,
@@ -169,8 +174,20 @@ def distillation(teacher: nn.Module,
 
             loss_cls = criterion(s_logits, y)
 
-            loss_kd = distill_loss(s_logits, t_logits, s_feats, t_feats, student,
-                                   is_l1, is_soft_kl, alpha, beta, T, sigmoid_T1, offset, sigmoid_T2, offset, use_soft)
+            loss_kd = distill_loss(student_logits=s_logits, teacher_logits=t_logits,
+                                   student_features=s_feats, teacher_features=t_feats,
+                                   student_model=student,
+                                   is_norm=is_norm,
+                                   norm_type=norm_type,
+                                   is_soft_kl=is_soft_kl,
+                                   alpha=alpha,
+                                   beta=beta,
+                                   T=T,
+                                   sigmoid_T1=sigmoid_T1,
+                                   offset1=offset,
+                                   sigmoid_T2=sigmoid_T2,
+                                   offset2=offset,
+                                   use_soft=use_soft)
 
             loss = theta * loss_cls + (1-theta) * loss_kd
 

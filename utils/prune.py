@@ -5,20 +5,30 @@ import torch.nn.functional as F
 from utils.effective_flops import conv_effective_flops, linear_effective_flops
 
 
+def block_weight_prune_l2(model: nn.Module,
+                          prune_ratio: float = 1e-3) -> None:
+    with torch.no_grad():
+        for name, module in model.named_children():
+            if isinstance(module, nn.Sequential) and "downsample" not in name:
+                for submodule in module.modules():
+                    if isinstance(submodule, nn.Conv2d):
+                        weight = submodule.weight.data
+                        flat = weight.view(-1).abs()
+                        k = int(flat.numel() * prune_ratio)
+                        if k > 0:
+                            threshold = torch.kthvalue(flat, k).values.item()
+                            mask = weight.abs() < threshold
+                            weight[mask] = 0.0
+
+
 def weight_prune(model: nn.Module,
                  threshold: float = 1e-3) -> None:
     with torch.no_grad():
-        total_params = 0
-        total_pruned = 0
-
         for name, param in model.named_parameters():
             if "weight" in name and param.requires_grad:
                 mask = param.abs() < threshold
-                pruned_count = mask.sum().item()
                 param[mask] = 0.0
 
-                total_params += param.numel()
-                total_pruned += pruned_count
 
 
 def activation_prune(model: nn.Module,

@@ -12,8 +12,9 @@ from train.distillation import get_weights_norm
 
 def fine_tune_loss(model: nn.Module,
                    alpha: float=1.0,
-                   beta: float=1e-4) -> torch.Tensor:
-    layer_norm_dict = get_weights_norm(model)
+                   beta: float=1e-4,
+                   norm_type: str='l2') -> torch.Tensor:
+    layer_norm_dict = get_weights_norm(model, norm_type)
     layer_names = list(layer_norm_dict.keys())
 
     norm_inter = 0.0
@@ -33,6 +34,7 @@ def fine_tune(model: nn.Module,
               optimizer: optim.Optimizer,
               scheduler: optim.lr_scheduler,
               epoch: int,
+              norm_type: str='l2',
               theta: float=0.1,
               alpha: float=1.0,
               beta: float=1e-5,
@@ -49,7 +51,7 @@ def fine_tune(model: nn.Module,
 
             loss_cls = criterion(output, y)
 
-            loss_norm = fine_tune_loss(model, alpha, beta)
+            loss_norm = fine_tune_loss(model, alpha, beta, norm_type)
 
             loss = theta * loss_cls + (1-theta) * loss_norm
 
